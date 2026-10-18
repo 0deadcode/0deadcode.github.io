@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blind Connections</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+        #game {
+            width: 830px;
+            margin: 20px auto;
+            background-color: white;
+            padding: 20px;
+            box-sizing: content-box;
+            gap: 0;
+        }
+        #left-container {
+            vertical-align: top;
+            display: inline-block;
+        }
+        #options {
+            width: 520px;
+            display: inline-block;
+            position: relative;
+            height: 365px;
+        }
+        #log {
+            width: 300px;
+            display: inline-block;
+            position: relative;
+            height: 409px;
+            overflow-y: scroll;
+        }
+        .logLine {
+            text-align: center;
+            background-color: lightgray;
+            height: 60px;
+            border-radius: 10px;
+            font-size: 40px;
+            line-height: 60px;
+            user-select: none;
+            margin-top: 5px;
+            padding-left: 10px;
+            position: relative;
+        }
+        .logNum {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 10px;
+            line-height: 10px;
+            text-shadow: none;
+        }
+        .option {
+            display: block;
+            position: absolute;
+            transition: left 0.5s ease-in-out, top 0.5s ease-in-out, background-color 0.1s ease-out;
+            width: 120px;
+            height: 80px;
+            background-color: lightgray;
+            text-align: center;
+            border-radius: 20px;
+            line-height: 80px;
+            font-size: 40px;
+            margin: 5px;
+            top: 0px;
+            left: 0px;
+            user-select: none;
+            cursor: pointer;
+        }
+        .option.selected {
+            background-color: #444;
+        }
+        .option, .logLine {
+            text-shadow: 0 0 2px black;
+        }
+        #controls {
+            position: relative;
+        }
+        #controls > * {
+            vertical-align: top;
+        }
+        #submit, #share, #shuffle {
+            display: inline-block;
+            text-align: center;
+            background-color: lightgray;
+            width: 120px;
+            height: 40px;
+            border-radius: 10px;
+            line-height: 40px;
+            transition: background-color 0.1s ease-out;
+            user-select: none;
+        }
+        #submit.ready, #share, #shuffle {
+            background-color: #444;
+            color: white;
+            cursor: pointer;
+            author: 0 dead code;
+        }
+        #shuffle {
+            width: 40px;
+            position: absolute;
+            right: 5px;
+        }
+        #comment {
+            display: inline-block;
+            overflow: hidden;
+            width: 0px;
+            height: 40px;
+            line-height: 40px;
+            white-space: nowrap;
+        }
+        .g0 { background-color: #f9df6d; }
+        .g1 { background-color: #a0c35a; }
+        .g2 { background-color: #b0c4ef; }
+        .g3 { background-color: #ba81c5; }
+    </style>
+</head>
+<body>
+    <div id="game">
+        <div id="left-container">
+            <div id="options">
+
+            </div>
+            <div id="controls">
+                <div id="submit" onclick="submit()">Submit</div>
+                <div id="share" onclick="share()" style="display: none">Share</div>
+                <div id="comment">Wowee</div>
+                <div id="shuffle" onclick="shuffleTiles()">🎲</div>
+            </div>
+        </div>
+        <div id="log">
+
+        </div>
+    </div>
+
+    <script>
+        const XMUL = 130
+        const YMUL = 90
+        function setPos(option, x, y) {
+            option.el.style.left = (x * XMUL) + "px"
+            option.el.style.top = (y * YMUL) + "px"
+        }
+
+        let tileOrder = new Array(16).fill().map((_,i) => i)
+        function rearrange() {
+            let solvedGroupNums = guessesInOrder
+                .filter(guess => guess.filter(x => x != guess[0]).length == 0)
+                .map(guess => guess[0]);
+            let displaced = []
+            solvedGroupNums.forEach((group, i) => {
+                let idxs = options.map((o, j) => o.group == group ? j : NaN).filter(x => !isNaN(x))
+                idxs.forEach((n,j) => {
+                    let targetPos = j+i*4
+                    if (tileOrder.indexOf(n) != targetPos) {
+                        tileOrder[tileOrder.indexOf(n)] = null
+                        displaced.push(tileOrder[targetPos])
+                        tileOrder[targetPos] = n
+                    }
+                    displaced = displaced.filter(x => x != n)
+                })
+            })
+            displaced.forEach(n => tileOrder[tileOrder.indexOf(null)] = n)
+            tileOrder.forEach((n, i) => {
+                setPos(options[n], i%4, Math.floor(i/4))
+            })
+        }
+
+        const submitButton = document.getElementById("submit")
+        function update() {
+            if (selected.length == 4) {
+                submitButton.classList.add("ready")
+            } else {
+                submitButton.classList.remove("ready")
+            }
+        }
+
+        const revealComment = document.getElementById("comment")
+            .animate(
+                [{ width: "0px" }, { width: "250px" }, { width: "250px" }, { width: "0px" }],
+                {
+                fill: "forwards",
+                easing: "cubic-bezier(.07,.5,.87,.51)",
+                duration: 2000,
+                },
+            );
+        revealComment.cancel()
+
+        let solvedGroups = {}
+        let guessesInOrder = []
+        let alreadyGuessed = {}
+        function submit() {
+            if (selected.length == 4) {
+                let groups = selected.map(i => options[i].group)
+                let symbol = ""
+                let selectedRightNow = [...selected]
+                if (groups.filter(x => x != groups[0]).length == 0) {
+                    // all match
+                    selected.map(i => {
+                        options[i].el.style.pointerEvents = "none"
+                        options[i].el.classList.add("g" + groups[0])
+                        options[i].el.classList.remove("selected")
+                    })
+                    selected = []
+                    solvedGroups[groups[0]] = true
+                    update()
+                    symbol = "✅"
+                    if (Object.keys(solvedGroups).length == 4) {
+                        document.getElementById("submit").style.display = "none"
+                        document.getElementById("shuffle").style.display = "none"
+                        document.getElementById("share").style.display = ""
+                        document.getElementById("comment").innerText = `${guessesInOrder.length+1} guesses`
+                        revealComment.cancel()
+                        revealComment.play()
+                    }
+                } else {
+                    let text
+                    if (Math.max(...groups.map(x => groups.filter(y => y == x).length)) == 3) {
+                        text = "1️⃣ One away"
+                        symbol = "1️⃣"
+                    } else {
+                        text = "❌ " + ([
+                            "Nope", "Not close", "Incorrect",
+                            "Nuh uh", "Nahhhh", "All wrong",
+                            "Miss", "More than one away"
+                        ][Math.floor(Math.random()*8)])
+                        symbol = "❌"
+                    }
+                    document.getElementById("comment").innerText = text
+                    revealComment.cancel()
+                    revealComment.play()
+                }
+
+                let key = selectedRightNow.sort().join("|")
+                if (!alreadyGuessed[key]) {
+                    alreadyGuessed[key] = true
+                    let logLine = document.createElement("div")
+                    logLine.classList.add("logLine")
+                    logLine.innerText = selectedRightNow.map(i => options[i].text).join("") + "│" + symbol
+                    let logNum = document.createElement("div")
+                    logNum.classList.add("logNum")
+                    logNum.innerText = guessesInOrder.length + 1
+                    logLine.appendChild(logNum)
+                    document.getElementById("log").appendChild(logLine)
+                    document.getElementById("log").scrollBy(0, 100)
+                    guessesInOrder.push(groups)
+                    if (groups.filter(x => x != groups[0]).length == 0) {
+                        rearrange()
+                    }
+                }
+            }
+        }
+
+        window.onkeypress = (e) => {
+            if (Object.keys(solvedGroups).length == 4) return
+            if (e.key == " " || e.key == "Enter") {
+                submit()
+            } else if (e.key.toLowerCase() == "s") {
+                shuffleTiles()
+            }
+        }
+
+        const colorEmojis = ["🟨", "🟩", "🟦", "🟪"]
+        async function share() {
+            await navigator.clipboard.writeText(
+                `Really Bad Connections\nPuzzle #∞\n${guessesInOrder.length} guesses\n`
+                + guessesInOrder.map(g => g.map(i => colorEmojis[i]).join("")).join("\n")
+            )
+            document.getElementById("comment").innerText = "Copied!"
+            revealComment.cancel()
+            revealComment.play()
+        }
+
+        function shuffle(l) {
+            return l
+                .reverse().sort(() => Math.random()-0.5).sort(() => Math.random()-0.5)
+                .reverse().sort(() => Math.random()-0.5).sort(() => Math.random()-0.5)
+                .reverse().sort(() => Math.random()-0.5).sort(() => Math.random()-0.5)
+                .reverse().sort(() => Math.random()-0.5).sort(() => Math.random()-0.5)
+                .reverse().sort(() => Math.random()-0.5).sort(() => Math.random()-0.5)
+        }
+
+        function shuffleTiles() {
+            shuffle(tileOrder)
+            rearrange()
+        }
+
+        let options = []
+        let selected = []
+        let order = shuffle([0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3]) //
+        let emojis = shuffle(["🥝", "🍓", "🥐", "🥓", "🍍", "🍋", "🍉", "🍊", "🍐", "🍇", "🥑", "🍌", "🍒", "🫐", "🥨", "🍎"])
+        // HARDCODE FOR TEST
+        if (location.search.indexOf("corners") != -1) {
+            order = [0,0,1,1,0,0,1,1,2,2,3,3,2,2,3,3]
+        }
+        if (location.search.indexOf("nums") != -1) {
+            emojis = ["⓪","①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩","⑪","⑫","⑬","⑭","⑮"]
+        }
+        if (location.search.indexOf("selfsolve") != -1) {
+            (async () => {
+                let data = await (await fetch("selfsolve.json")).json()
+                data = data[data.key]
+                order = data.board
+                data.board.forEach((g, i) => options[i].group = g)
+                let step = 0
+                submit = ((s) => function () {
+                    s()
+
+                    if (data.guesses[step]) {
+                        {[...selected].forEach(s => {
+                            options[s].el.click()
+                        })}
+                        {[...data.guesses[step]].forEach(s => {
+                            options[s].el.click()
+                        })}
+                    }
+                    step += 1
+                })(submit)
+                submit()
+                console.log("Loaded autosolve: ", data)
+            })()
+        }
+        order.forEach((o, i) => {
+            let opt = {
+                el: document.createElement("div"),
+                text: emojis[i],
+                group: o
+            }
+            opt.el.innerText = opt.text
+            opt.el.classList.add("option")
+            opt.el.onclick = () => {
+                if (selected.indexOf(i) == -1) {
+                    opt.el.classList.add("selected")
+                    selected.push(i)
+                } else {
+                    opt.el.classList.remove("selected")
+                    selected.splice(selected.indexOf(i), 1)
+                }
+                update()
+            }
+            options.push(opt)
+            document.getElementById("options").appendChild(opt.el)
+            setPos(opt, (i%4-1.5)*10+1.5, -8.5 + Math.floor(i/4)*2)
+        })
+        setTimeout(() => {
+            rearrange()
+        }, 0)
+    </script>
+</body>
+</html>
